@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Arcane Escape</title>
+    <style>
+        /* ... */
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="index.html">V1</a> | 
+        <a href="v2.html">V2</a> | 
+    </nav>
+    <canvas id="canvas"></canvas>
+    <script>
+        // ===== ARCANE ESCAPE =====
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = 800;
+canvas.height = 500;
+
+// Constants
+const TS = 32;
+const GRAV = 0.55;
+const JUMP = -11;
+const PSPEED = 3.2;
+
+// Input
+const K = {};
+const JP = {};
+onkeydown = e => { if(!K[e.code]) JP[e.code]=true; K[e.code]=true; if(!/^F/.test(e.key))e.preventDefault(); };
+onkeyup = e => K[e.code] = false;
+const kd = (...c) => c.some(x=>K[x]);
+const jp = (...c) => c.some(x=>JP[x]);
+const clrJP = () => { for(const k in JP) delete JP[k]; };
+
+// Camera
+let camX=0, camY=0;
+const toSX = x => x-camX;
+const toSY = y => y-camY;
+
+// Particle system
+const ptx = [];
+const addPtx = (x,y,vx,vy,col,life,sz=3) => ptx.push({x,y,vx,vy,col,life,l0:life,sz});
+
+
+const LEVEL1 = {
+    name: "I. A Kő Csarnokok",
+    map: [
+        "#########################",  // row 0 - 25 ✓
+        "#P       #       #      #",  // row 1 - 25 ✓ 
+        "#        L  ###  K    E #",  // row 2 - 25, L at col 9, K at col 17, E at col22
+        "#        D  ###  #      #",  // row 3 - D at col 9
+        "#   1    #  ###  # B    #",  // row 4 - slime at 4, B=barrier at col 17
+        "#        #       #      #",  // row 5
+        "#  ####  #  C    #   1  #",  // row 6 - crate at col 12, slime at col 21
+        "#  ####  #       #      #",  // row 7
+        "#  ####  ####    ########",  // row 8 - floor of left area
+        "#        #  o    #       #",  // row 9 - plate at col 12 - wait that's 26 chars!
+    ]
+};
+
+
+const L1_TILES = [
+  // row, col 0-24
+  // Top wall
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], // 0
+  // Room interior
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 1
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 2 (door/barrier openings)
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], // 3 (door/barrier openings)
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 4
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 5
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 6
+  [1,0,0,0,0,0,1,0,1,1,1,0,1,1,1,1,0,0,0,0,0,0,0,0,1], // 7 platforms in middle
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 8
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 9
+  [1,0,2,2,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 10 platforms left
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], // 11
+  [1,0,0,0,0,0,1,0,0,0,3,3,0,0,0,1,0,0,0,0,0,0,0,0,1], // 12 spikes in middle
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], // 13 floor
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], // 14
+];
+
+const L1_OBJECTS = [
+    // p = pixels, c = col, r = row (in tiles)
+    {type:'lever', x:2*32, y:10*32, id:0},       // Lever at col 2, row 10
+    {type:'door', x:6*32, y:2*32, w:32, h:2*32, id:0, open:false},  // Door at col 6, rows 2-3
+    {type:'crate', x:8*32+2, y:12*32-28-2, w:28, h:28}, // Crate in middle area
+    {type:'plate', x:12*32+4, y:13*32-4, w:24, h:4},    // Plate at col 12, floor level
+    {type:'barrier', x:15*32, y:2*32, w:32, h:2*32, id:0, open:false}, // Barrier at col 15
+    {type:'key', x:20*32+8, y:7*32, collected:false, id:0},   // Key right section
+    {type:'gate', x:19*32, y:2*32, w:32, h:2*32, id:0, open:false},  // Gate
+    {type:'exit', x:23*32, y:1*32},               // Exit
+    {type:'slime', x:3*32, y:12*32-18, dir:1, hp:2, speed:1.2},
+    {type:'slime', x:18*32, y:12*32-18, dir:1, hp:2, speed:1.0},
+    {type:'gem', x:9*32+8, y:8*32},
+    {type:'gem', x:11*32+8, y:8*32},
+];
+
+const L1_LINKS = {
+    leverDoor: [[0, 0]],   // Lever 0 → Door 0
+    plateBare: [[0, 0]],   // Plate 0 → Barrier 0
+    keyGate: [[0, 0]],     // Key 0 → Gate 0
+};
+
+
+const burst = (x,y,col,n=8,spd=2) => {
+    for(let i=0;i<n;i++){
+        const a=Math.PI*2*i/n+Math.random()*.4;
+        addPtx(x,y,Math.cos(a)*spd*(0.5+Math.random()),Math.sin(a)*spd*(0.5+Math.random())-1,col,25+Math.random()*20);
+    }
+};
+
+// Timer for torch/glow effects
+let t = 0;
+
+// ===== TILE SYSTEM =====
+
+const EMPTY=0, STONE=1, PLATF=2, SPIKE=3, LAVA=4;
+
+function solid(id) { return id===STONE; }
+function danger(id) { return id===SPIKE||id===LAVA; }
+
+function parseLevelMap(rows) {
+    const tileMap = [];
+    const objects = [];
+    const levers = [], doors = [];
+    let leverCount=0, doorCount=0;
+    let playerStart = {x:2*TS, y:2*TS};
+    
+    for(let r=0; r<rows.length; r++) {
+        const row = [];
+        for(let c=0; c<rows[r].length; c++) {
+            const ch = rows[r][c];
+            const x = c*TS, y = r*TS;
+            let tile = EMPTY;
+            
+            switch(ch) {
+                case '#': tile=STONE; break;
+                case '-': tile=PLATF; break;
+                case '^': tile=SPIKE; break;
+                case '~': tile=LAVA; break;
+                case 'P': playerStart={x:x+6,y:y+4}; tile=EMPTY; break;
+                case 'E': objects.push({type:'exit',x,y}); tile=EMPTY; break;
+                case 'L': objects.push({type:'lever',x:x+4,y:y+4,id:leverCount++,on:false}); tile=EMPTY; break;
+                case 'D': objects.push({type:'door',x,y,w:TS,h:TS,id:doorCount++,open:false}); tile=EMPTY; break;
+                case 'K': objects.push({type:'key',x:x+4,y:y+4,collected:false}); tile=EMPTY; break;
+                case 'G': objects.push({type:'gate',x,y,w:TS,h:TS,open:false}); tile=EMPTY; break;
+                case 'C': objects.push({type:'crate',x:x+2,y:y+2,w:28,h:28,vx:0,vy:0}); tile=EMPTY; break;
+                case 'o': objects.push({type:'plate',x:x+2,y:y+28,w:28,h:4,active:false}); tile=EMPTY; break;
+                case 'B': objects.push({type:'barrier',x,y,w:TS,h:TS,open:false}); tile=EMPTY; break;
+                case '1': objects.push({type:'slime',x,y,vx:1,vy:0,hp:2,dir:1}); tile=EMPTY; break;
+                case '2': objects.push({type:'bat',x,y,vx:0.8,vy:0,hp:1,baseY:y,phase:Math.random()*Math.PI*2}); tile=EMPTY; break;
+                case '3': objects.push({type:'skeleton',x,y,vx:0.8,vy:0,hp:3,dir:1,shotTimer:0}); tile=EMPTY; break;
+                case '*': objects.push({type:'gem',x:x+8,y:y+8}); tile=EMPTY; break;
+            }
+            row.push(tile);
+        }
+        tileMap.push(row);
+    }
+    
+    return { tileMap, objects, playerStart, levers, doors };
+}
+    </script>
+</body>
+</html>
