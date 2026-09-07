@@ -30,11 +30,17 @@ const PSPEED = 3.2;
 // Input
 const K = {};
 const JP = {};
-onkeydown = e => { if(!K[e.code]) JP[e.code]=true; K[e.code]=true; if(!/^F/.test(e.key))e.preventDefault(); };
+        onkeydown = e => {
+            if (!K[e.code]) JP[e.code] = true;
+            K[e.code] = true;
+            if (!/^F/.test(e.key)) e.preventDefault();
+        };
 onkeyup = e => K[e.code] = false;
 const kd = (...c) => c.some(x=>K[x]);
 const jp = (...c) => c.some(x=>JP[x]);
-const clrJP = () => { for(const k in JP) delete JP[k]; };
+        const clrJP = () => {
+            for (const k in JP) delete JP[k];
+        };
 
 // Camera
 let camX=0, camY=0;
